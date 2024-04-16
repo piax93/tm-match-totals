@@ -7,23 +7,29 @@ bool windowVisible = false;
 
 // Global state
 string currentMap = "";
+uint roundNumber = 0;
+bool recentlyRecordedScore = false;
 Knowledge currentMapMultilap = Knowledge::UNSURE;
 dictionary trackedPlayers = dictionary();
 dictionary playerPoints = dictionary();
+dictionary playerPointsCurrRound = dictionary();
 
 
 class PlayerStat {
     string name;
     int64 points;
+    int64 toAdd;
 
     PlayerStat() {
         this.name = "";
         this.points = -1;
+        this.toAdd = 0;
     }
 
-    PlayerStat(const string &in name, int64 points) {
+    PlayerStat(const string &in name, int64 points, int64 toAdd) {
         this.name = name;
         this.points = points;
+        this.toAdd = toAdd;
     }
 
     int opCmp(PlayerStat@ other) {
@@ -51,11 +57,15 @@ void RenderInterface() {
             print("Stopped recording match points");
             isRecordingPoints = false;
             currentMap = "";
+            roundNumber = 0;
+            recentlyRecordedScore = false;
             trackedPlayers.DeleteAll();
+            playerPointsCurrRound.DeleteAll();
         }
         UI::SameLine();
         if (UI::Button("Reset Points")) {
             playerPoints.DeleteAll();
+            playerPointsCurrRound.DeleteAll();
         }
         UI::EndGroup();
         renderPlayerTable();
@@ -80,7 +90,9 @@ void renderPlayerTable() {
     for (uint i = 0; i < playerNames.Length; i++) {
         int64 points = 0;
         if (playerPoints.Get(playerNames[i], points)) {
-            players[i] = PlayerStat(playerNames[i], points);
+            int64 toAdd = 0;
+            playerPointsCurrRound.Get(playerNames[i], toAdd);
+            players[i] = PlayerStat(playerNames[i], points, toAdd);
         }
     }
     players.SortDesc();
@@ -89,7 +101,11 @@ void renderPlayerTable() {
             UI::TableNextColumn();
             UI::Text(players[i].name);
             UI::TableNextColumn();
-            UI::Text(Text::Format("%d", players[i].points));
+            if (players[i].toAdd > 0) {
+                UI::Text(Text::Format("%d", players[i].points) + Text::Format("  (+%d)", players[i].toAdd));
+            } else {
+                UI::Text(Text::Format("%d", players[i].points));
+            }
             UI::TableNextRow();
         }
     }
@@ -108,6 +124,7 @@ void recordMatchPoints() {
     // If we changed track, let's clear player tracking
     auto mapName = StripFormatCodes(app.RootMap.MapName);
     if (currentMap != mapName) {
+        roundNumber = 0;
         trackedPlayers.DeleteAll();
         currentMapMultilap = Knowledge::UNSURE;
         currentMap = mapName;
@@ -132,9 +149,11 @@ void recordMatchPoints() {
         // New finish for the player, we store it
         if (isActuallyFinished && !alreadyTracked && player.LastCpTime != 0) {
             int64 currPoints = 0;
-            playerPoints.Get(player.Name, currPoints);
-            playerPoints.Set(player.Name, currPoints + player.RoundPoints);
+            if (!playerPoints.Exists(player.Name)) playerPoints.Set(player.Name, currPoints);
+            playerPointsCurrRound.Get(player.Name, currPoints);
+            playerPointsCurrRound.Set(player.Name, currPoints + player.RoundPoints);
             trackedPlayers.Set(player.WebServicesUserId, 1);
+            recentlyRecordedScore = true;
             continue;
         }
 
@@ -143,6 +162,23 @@ void recordMatchPoints() {
             trackedPlayers.Delete(player.WebServicesUserId);
         }
     }
+
+    // Euristically guess round switching
+    if (recentlyRecordedScore && trackedPlayers.IsEmpty()) {
+        auto playerNames = playerPointsCurrRound.GetKeys();
+        for (uint i = 0; i < playerNames.Length; i++) {
+            int64 currPoints = 0;
+            if (playerPointsCurrRound.Get(playerNames[i], currPoints)) {
+                int64 points = 0;
+                playerPoints.Get(playerNames[i], points);
+                playerPoints.Set(playerNames[i], points + currPoints);
+                playerPointsCurrRound.Delete(playerNames[i]);
+            }
+        }
+        roundNumber++;
+        recentlyRecordedScore = false;
+    }
+
 }
 
 
