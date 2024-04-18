@@ -1,41 +1,27 @@
 // Just for ease of access
 const string pluginName = Meta::ExecutingPlugin().Name;
 
+// Settings
+[Setting name="Polling Rate Milliseconds" description="How often the plugin checks for players crossing the finish line"]
+int dataPollingRateMs = 1000;
+
 // UI toggles
 bool isRecordingPoints = false;
 bool windowVisible = false;
+bool resetEveryTrack = false;
 
 // Global state
 string currentMap = "";
 uint roundNumber = 0;
+uint selectedOld = 0;
 bool recentlyRecordedScore = false;
+bool newDataToRender = false;
 Knowledge currentMapMultilap = Knowledge::UNSURE;
 dictionary trackedPlayers = dictionary();
 dictionary playerPoints = dictionary();
 dictionary playerPointsCurrRound = dictionary();
-
-
-class PlayerStat {
-    string name;
-    int64 points;
-    int64 toAdd;
-
-    PlayerStat() {
-        this.name = "";
-        this.points = -1;
-        this.toAdd = 0;
-    }
-
-    PlayerStat(const string &in name, int64 points, int64 toAdd) {
-        this.name = name;
-        this.points = points;
-        this.toAdd = toAdd;
-    }
-
-    int opCmp(PlayerStat@ other) {
-        return this.points == other.points ? 0 : (this.points > other.points ? 1 : -1);
-    }
-}
+array<string> playedTracks = {};
+array<string> previousScores = {};
 
 
 void RenderMenu() {
@@ -60,56 +46,53 @@ void RenderInterface() {
             roundNumber = 0;
             recentlyRecordedScore = false;
             trackedPlayers.DeleteAll();
-            playerPointsCurrRound.DeleteAll();
+            mergeScores();
         }
         UI::SameLine();
         if (UI::Button("Reset Points")) {
             playerPoints.DeleteAll();
             playerPointsCurrRound.DeleteAll();
+            playedTracks.Resize(0);
+            previousScores.Resize(0);
         }
+        resetEveryTrack = UI::Checkbox("Reset/store scores for every track", resetEveryTrack);
         UI::EndGroup();
-        renderPlayerTable();
+        if (!playedTracks.IsEmpty()) {
+            UI::BeginGroup();
+            if (UI::BeginCombo("##", selectedOld > 0 ? playedTracks[selectedOld-1] : "##")) {
+                for (uint i = 0; i <= playedTracks.Length; i++) {
+                    auto comboEntry = i == 0 ? "##" : playedTracks[i-1];
+                    if (UI::Selectable(comboEntry, selectedOld == i)) {
+                        selectedOld = i;
+                    }
+                }
+                UI::EndCombo();
+            }
+            UI::EndGroup();
+        }
+        if (selectedOld > 0) {
+            renderPlayerTable(previousScores[selectedOld-1]);
+        } else {
+            renderPlayerTable(playerPoints, playerPointsCurrRound, newDataToRender);
+        }
+        newDataToRender = false;
         UI::End();
     }
 }
 
 
-void renderPlayerTable() {
-    if (playerPoints.IsEmpty() || !UI::BeginTable("playerpoints", 2, UI::TableFlags::SizingFixedFit)) {
-        return;
-    }
-    UI::TableSetupColumn("Name", UI::TableColumnFlags::WidthStretch);
-    UI::TableSetupColumn("Points", UI::TableColumnFlags::WidthStretch);
-    UI::TableHeadersRow();
-    UI::TableNextRow();
-    auto players = array<PlayerStat>(50);
-    auto playerNames = playerPoints.GetKeys();
-    if (playerNames.Length > players.Length) {
-        players.Resize(playerNames.Length);
-    }
+void mergeScores() {
+    if (!playerPointsCurrRound.IsEmpty()) newDataToRender = true;
+    auto playerNames = playerPointsCurrRound.GetKeys();
     for (uint i = 0; i < playerNames.Length; i++) {
-        int64 points = 0;
-        if (playerPoints.Get(playerNames[i], points)) {
-            int64 toAdd = 0;
-            playerPointsCurrRound.Get(playerNames[i], toAdd);
-            players[i] = PlayerStat(playerNames[i], points, toAdd);
+        int64 currPoints = 0;
+        if (playerPointsCurrRound.Get(playerNames[i], currPoints)) {
+            int64 points = 0;
+            playerPoints.Get(playerNames[i], points);
+            playerPoints.Set(playerNames[i], points + currPoints);
+            playerPointsCurrRound.Delete(playerNames[i]);
         }
     }
-    players.SortDesc();
-    for (uint i = 0; i < players.Length; i++) {
-        if (players[i].points >= 0) {
-            UI::TableNextColumn();
-            UI::Text(players[i].name);
-            UI::TableNextColumn();
-            if (players[i].toAdd > 0) {
-                UI::Text(Text::Format("%d", players[i].points) + Text::Format("  (+%d)", players[i].toAdd));
-            } else {
-                UI::Text(Text::Format("%d", players[i].points));
-            }
-            UI::TableNextRow();
-        }
-    }
-    UI::EndTable();
 }
 
 
@@ -121,9 +104,16 @@ void recordMatchPoints() {
     auto app = cast<CTrackMania>(GetApp());
     if (app.CurrentPlayground is null || (app.CurrentPlayground.UIConfigs.Length < 1)) return;
 
-    // If we changed track, let's clear player tracking
+    // If we changed track, let's clear player tracking and store scores
     auto mapName = StripFormatCodes(app.RootMap.MapName);
     if (currentMap != mapName) {
+        mergeScores();
+        if (resetEveryTrack && currentMap != "") {
+            playedTracks.InsertLast(currentMap);
+            previousScores.InsertLast(serializeScores(playerPoints));
+            playerPoints.DeleteAll();
+            playerPointsCurrRound.DeleteAll();
+        }
         roundNumber = 0;
         trackedPlayers.DeleteAll();
         currentMapMultilap = Knowledge::UNSURE;
@@ -154,6 +144,7 @@ void recordMatchPoints() {
             playerPointsCurrRound.Set(player.Name, currPoints + player.RoundPoints);
             trackedPlayers.Set(player.WebServicesUserId, 1);
             recentlyRecordedScore = true;
+            newDataToRender = true;
             continue;
         }
 
@@ -165,16 +156,7 @@ void recordMatchPoints() {
 
     // Euristically guess round switching
     if (recentlyRecordedScore && trackedPlayers.IsEmpty()) {
-        auto playerNames = playerPointsCurrRound.GetKeys();
-        for (uint i = 0; i < playerNames.Length; i++) {
-            int64 currPoints = 0;
-            if (playerPointsCurrRound.Get(playerNames[i], currPoints)) {
-                int64 points = 0;
-                playerPoints.Get(playerNames[i], points);
-                playerPoints.Set(playerNames[i], points + currPoints);
-                playerPointsCurrRound.Delete(playerNames[i]);
-            }
-        }
+        mergeScores();
         roundNumber++;
         recentlyRecordedScore = false;
     }
@@ -188,6 +170,6 @@ void Main() {
         if (isRecordingPoints) {
             recordMatchPoints();
         }
-        sleep(1000);
+        sleep(dataPollingRateMs);
     }
 }

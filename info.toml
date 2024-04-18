@@ -2,7 +2,7 @@
 name     = "Match Totals"
 author   = "MatP93"
 category = "Analysis"
-version  = "0.0.2"
+version  = "0.1.0"
 
 [script]
 dependencies = ["MLHook", "MLFeedRaceData"]
