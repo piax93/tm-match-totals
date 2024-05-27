@@ -105,7 +105,7 @@ void recordMatchPoints() {
     if (app.CurrentPlayground is null || (app.CurrentPlayground.UIConfigs.Length < 1)) return;
 
     // If we changed track, let's clear player tracking and store scores
-    auto mapName = StripFormatCodes(app.RootMap.MapName);
+    auto mapName = Text::StripFormatCodes(app.RootMap.MapName);
     if (currentMap != mapName) {
         mergeScores();
         if (resetEveryTrack && currentMap != "") {

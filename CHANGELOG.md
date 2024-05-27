@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2024-05-27
+
+* Stop using deprecated global functions
+
 ## 0.1.0 - 2024-04-18
 
 * Allow recording all tracks separately
