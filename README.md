@@ -1,4 +1,4 @@
-# TM2020 Match Totals
+# Match Totals
 
 Are you tired of hearing your teammates saying they scored more points than you in an EMC match?
 
@@ -12,4 +12,4 @@ so you can finally have pics of your insane performance on [_Honeycode_](https:/
 
 What are you waiting for?! First 10 downloads get... well... nothing. HURRY UP!
 
-![image](https://github.com/piax93/TM2020MatchTotals/assets/9299307/cd6b40b4-28fe-42eb-a92e-c13d674ce213)
+![in-game ui](https://github.com/piax93/tm-match-totals/assets/9299307/cd6b40b4-28fe-42eb-a92e-c13d674ce213)
